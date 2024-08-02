@@ -15,6 +15,7 @@ mod send_and_confirm;
 mod stake;
 mod upgrade;
 mod utils;
+mod jito_send_and_confirm;
 
 use std::sync::Arc;
 
