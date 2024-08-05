@@ -1,3 +1,5 @@
+use std::fmt::Formatter;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::vec;
 use log::{info, warn};
@@ -33,6 +35,7 @@ use jito_protos::{
     },
 };
 use tokio::time::{sleep, timeout};
+use tokio::{sync::RwLock, task::JoinHandle};
 use jito_protos::searcher::{NextScheduledLeaderRequest, SubscribeBundleResultsRequest};
 use crate::Miner;
 use crate::send_and_confirm::ComputeBudget;
@@ -40,24 +43,24 @@ use crate::send_and_confirm::ComputeBudget;
 
 pub const JITO_RECIPIENTS: [Pubkey; 8] = [
     // mainnet
-    // pubkey!("96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5"),
-    // pubkey!("HFqU5x63VTqvQss8hp11i4wVV8bD44PvwucfZ2bU7gRe"),
-    // pubkey!("Cw8CFyM9FkoMi7K7Crf6HNQqf4uEMzpKw6QNghXLvLkY"),
-    // pubkey!("ADaUMid9yfUytqMBgopwjb2DTLSokTSzL1zt6iGPaS49"),
-    // pubkey!("DfXygSm4jCyNCybVYYK6DwvWqjKee8pbDmJGcLWNDXjh"),
-    // pubkey!("ADuUkR4vqLUMWXxW9gh6D6L8pMSawimctcNZ5pGwDcEt"),
-    // pubkey!("DttWaMuVvTiduZRnguLF7jNxTgiMBZ1hyAumKUiL2KRL"),
-    // pubkey!("3AVi9Tg9Uo68tJfuvoKvqKNWKkC5wPdSSdeBnizKZ6jT"),
+    pubkey!("96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5"),
+    pubkey!("HFqU5x63VTqvQss8hp11i4wVV8bD44PvwucfZ2bU7gRe"),
+    pubkey!("Cw8CFyM9FkoMi7K7Crf6HNQqf4uEMzpKw6QNghXLvLkY"),
+    pubkey!("ADaUMid9yfUytqMBgopwjb2DTLSokTSzL1zt6iGPaS49"),
+    pubkey!("DfXygSm4jCyNCybVYYK6DwvWqjKee8pbDmJGcLWNDXjh"),
+    pubkey!("ADuUkR4vqLUMWXxW9gh6D6L8pMSawimctcNZ5pGwDcEt"),
+    pubkey!("DttWaMuVvTiduZRnguLF7jNxTgiMBZ1hyAumKUiL2KRL"),
+    pubkey!("3AVi9Tg9Uo68tJfuvoKvqKNWKkC5wPdSSdeBnizKZ6jT"),
 
     // testnet
-    pubkey!("4xgEmT58RwTNsF5xm2RMYCnR1EVukdK8a1i2qFjnJFu3"),
-    pubkey!("EoW3SUQap7ZeynXQ2QJ847aerhxbPVr843uMeTfc9dxM"),
-    pubkey!("9n3d1K5YD2vECAbRFhFFGYNNjiXtHXJWn9F31t89vsAV"),
-    pubkey!("B1mrQSpdeMU9gCvkJ6VsXVVoYjRGkNA7TtjMyqxrhecH"),
-    pubkey!("ARTtviJkLLt6cHGQDydfo1Wyk6M4VGZdKZ2ZhdnJL336"),
-    pubkey!("9ttgPBBhRYFuQccdR1DSnb7hydsWANoDsV3P9kaGMCEh"),
-    pubkey!("E2eSqe33tuhAHKTrwky5uEjaVqnb2T9ns6nHHUrN8588"),
-    pubkey!("aTtUk2DHgLhKZRDjePq6eiHRKC1XXFMBiSUfQ2JNDbN"),
+    // pubkey!("4xgEmT58RwTNsF5xm2RMYCnR1EVukdK8a1i2qFjnJFu3"),
+    // pubkey!("EoW3SUQap7ZeynXQ2QJ847aerhxbPVr843uMeTfc9dxM"),
+    // pubkey!("9n3d1K5YD2vECAbRFhFFGYNNjiXtHXJWn9F31t89vsAV"),
+    // pubkey!("B1mrQSpdeMU9gCvkJ6VsXVVoYjRGkNA7TtjMyqxrhecH"),
+    // pubkey!("ARTtviJkLLt6cHGQDydfo1Wyk6M4VGZdKZ2ZhdnJL336"),
+    // pubkey!("9ttgPBBhRYFuQccdR1DSnb7hydsWANoDsV3P9kaGMCEh"),
+    // pubkey!("E2eSqe33tuhAHKTrwky5uEjaVqnb2T9ns6nHHUrN8588"),
+    // pubkey!("aTtUk2DHgLhKZRDjePq6eiHRKC1XXFMBiSUfQ2JNDbN"),
 
 ];
 
@@ -81,6 +84,48 @@ pub enum BundleRejectionError {
     InternalError(String),
 }
 
+#[derive(Debug, Clone, Copy, Default, Deserialize)]
+pub struct JitoTips {
+    #[serde(rename = "landed_tips_25th_percentile")]
+    pub p25_landed: f64,
+
+    #[serde(rename = "landed_tips_50th_percentile")]
+    pub p50_landed: f64,
+
+    #[serde(rename = "landed_tips_75th_percentile")]
+    pub p75_landed: f64,
+
+    #[serde(rename = "landed_tips_95th_percentile")]
+    pub p95_landed: f64,
+
+    #[serde(rename = "landed_tips_99th_percentile")]
+    pub p99_landed: f64,
+}
+
+impl JitoTips {
+    pub fn p50(&self) -> u64 {
+        (self.p50_landed * 1e9f64) as u64
+    }
+
+    pub fn p25(&self) -> u64 {
+        (self.p25_landed * 1e9f64) as u64
+    }
+}
+
+impl std::fmt::Display for JitoTips {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "tips(p25={},p50={},p75={},p95={},p99={})",
+            (self.p25_landed * 1e9f64) as u64,
+            (self.p50_landed * 1e9f64) as u64,
+            (self.p75_landed * 1e9f64) as u64,
+            (self.p95_landed * 1e9f64) as u64,
+            (self.p99_landed * 1e9f64) as u64
+        )
+    }
+}
+
 pub type BlockEngineConnectionResult<T> = Result<T, BlockEngineConnectionError>;
 
 #[derive(Debug, Deserialize)]
@@ -94,6 +139,7 @@ impl Miner {
         ixs: &[Instruction],
         compute_budget: ComputeBudget,
         skip_confirm: bool,
+        tips: Arc<RwLock<JitoTips>>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let signer = self.signer();
         let client = self.rpc_client.clone();
@@ -125,8 +171,17 @@ impl Miner {
         final_ixs.push(ComputeBudgetInstruction::set_compute_unit_price(
             self.priority_fee,
         ));
-        // final_ixs.extend_from_slice(ixs);
-        final_ixs.push(build_bribe_ix(&signer.pubkey(), 1_000_000));
+        final_ixs.extend_from_slice(ixs);
+
+        let mut tip = self.priority_fee.clone();
+        if 100 > 0 {
+            let tips = *tips.read().await;
+
+            if tips.p50() > 0 {
+                tip = 100.min(30000.max(tips.p50() + 1));
+            }
+        }
+        final_ixs.push(build_bribe_ix(&signer.pubkey(), tip));
 
         let mut bundle_results_subscription = jito_client
             .subscribe_bundle_results(SubscribeBundleResultsRequest {})
@@ -347,5 +402,55 @@ where
             }),
         })
         .await
+}
+
+pub async fn subscribe_jito_tips(tips: Arc<RwLock<JitoTips>>) -> JoinHandle<()> {
+    tokio::spawn({
+        let tips = tips.clone();
+        async move {
+            let url = "ws://bundles-api-rest.jito.wtf/api/v1/bundles/tip_stream";
+
+            loop {
+                let stream = match tokio_tungstenite::connect_async(url).await {
+                    Ok((ws_stream, _)) => ws_stream,
+                    Err(err) => {
+                        tracing::error!("fail to connect to jito tip stream: {err:#}");
+                        tokio::time::sleep(Duration::from_secs(5)).await;
+                        continue;
+                    }
+                };
+
+                let (_, read) = stream.split();
+
+                read.for_each(|message| async {
+                    let data = match message {
+                        Ok(data) => data.into_data(),
+                        Err(err) => {
+                            tracing::error!("fail to read jito tips message: {err:#}");
+                            return;
+                        }
+                    };
+
+                    let data = match serde_json::from_slice::<Vec<JitoTips>>(&data) {
+                        Ok(t) => t,
+                        Err(err) => {
+                            tracing::error!("fail to parse jito tips: {err:#}");
+                            return;
+                        }
+                    };
+
+                    if data.is_empty() {
+                        return;
+                    }
+
+                    *tips.write().await = *data.first().unwrap();
+                })
+                    .await;
+
+                tracing::info!("jito tip stream disconnected, retries in 5 seconds");
+                tokio::time::sleep(Duration::from_secs(5)).await;
+            }
+        }
+    })
 }
 

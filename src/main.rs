@@ -33,6 +33,7 @@ use crate::jito_send_and_confirm::BlockEngineConnectionResult;
 struct Miner {
     pub keypair_filepath: Option<String>,
     pub priority_fee: u64,
+    pub max_adaptive_tip: u64,
     pub rpc_client: Arc<RpcClient>,
     pub jito_client: SearcherServiceClient<Channel>,
 }
@@ -119,12 +120,22 @@ struct Args {
     )]
     priority_fee: u64,
 
+    #[arg(
+        long,
+        value_name = "MICROLAMPORTS",
+        help = "The maximum tip to pay for jito. Set to 0 to disable adaptive tip, using priority_fee as fixed tip",
+        default_value = "0",
+        global = true
+    )]
+    max_adaptive_tip: u64,
+
     #[command(subcommand)]
     command: Commands,
 }
 
 #[tokio::main]
 async fn main() {
+    env_logger::init();
     let args = Args::parse();
 
     // Load the config file from custom path, the default path, or use default config values
@@ -151,6 +162,7 @@ async fn main() {
         Arc::new(rpc_client),
         jito_client,
         args.priority_fee,
+        args.max_adaptive_tip,
         Some(default_keypair),
     ));
 
@@ -198,6 +210,7 @@ impl Miner {
         rpc_client: Arc<RpcClient>,
         jito_client: SearcherServiceClient<Channel>,
         priority_fee: u64,
+        max_adaptive_tip: u64,
         keypair_filepath: Option<String>,
     ) -> Self {
         Self {
@@ -205,6 +218,7 @@ impl Miner {
             jito_client,
             keypair_filepath,
             priority_fee,
+            max_adaptive_tip,
         }
     }
 

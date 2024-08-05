@@ -2919,6 +2919,7 @@ dependencies = [
  "spl-token",
  "thiserror",
  "tokio",
+ "tokio-tungstenite",
  "tonic",
  "tracing",
 ]

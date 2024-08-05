@@ -13,13 +13,14 @@ use rand::Rng;
 use solana_program::pubkey::Pubkey;
 use solana_rpc_client::spinner;
 use solana_sdk::signer::Signer;
-
+use tokio::sync::RwLock;
 use crate::{
     args::MineArgs,
     send_and_confirm::ComputeBudget,
     utils::{amount_u64_to_string, get_clock, get_config, get_proof_with_authority, proof_pubkey},
     Miner,
 };
+use crate::jito_send_and_confirm::{JitoTips, subscribe_jito_tips};
 
 impl Miner {
     pub async fn mine(&self, args: MineArgs) {
@@ -29,6 +30,9 @@ impl Miner {
 
         // Check num threads
         self.check_num_cores(args.threads);
+
+        let tips = Arc::new(RwLock::new(JitoTips::default()));
+        subscribe_jito_tips(tips.clone()).await;
 
         // Start mining loop
         loop {
@@ -65,7 +69,7 @@ impl Miner {
                 find_bus(),
                 solution,
             ));
-            self.jito_send_and_confirm(&ixs, ComputeBudget::Fixed(compute_budget), false)
+            self.jito_send_and_confirm(&ixs, ComputeBudget::Fixed(compute_budget), false, tips.clone())
                 .await
                 .ok();
         }
