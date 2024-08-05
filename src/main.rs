@@ -26,11 +26,15 @@ use solana_sdk::{
     commitment_config::CommitmentConfig,
     signature::{read_keypair_file, Keypair},
 };
+use tonic::transport::{Channel, Endpoint};
+use jito_protos::searcher::searcher_service_client::SearcherServiceClient;
+use crate::jito_send_and_confirm::BlockEngineConnectionResult;
 
 struct Miner {
     pub keypair_filepath: Option<String>,
     pub priority_fee: u64,
     pub rpc_client: Arc<RpcClient>,
+    pub jito_client: SearcherServiceClient<Channel>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -80,6 +84,14 @@ struct Args {
         global = true
     )]
     rpc: Option<String>,
+
+    #[arg(
+        long,
+        value_name = "Jito_URL",
+        help = "Network address of your RPC provider",
+        global = true
+    )]
+    jito_url: Option<String>,
 
     #[clap(
         global = true,
@@ -131,9 +143,13 @@ async fn main() {
     let cluster = args.rpc.unwrap_or(cli_config.json_rpc_url);
     let default_keypair = args.keypair.unwrap_or(cli_config.keypair_path);
     let rpc_client = RpcClient::new_with_commitment(cluster, CommitmentConfig::confirmed());
+    let jito_client = get_searcher_client_no_auth(args.jito_url.unwrap_or("https://mainnet.block-engine.jito.wtf".to_string()).as_ref())
+        .await
+        .expect("Failed to connect to block engine");
 
     let miner = Arc::new(Miner::new(
         Arc::new(rpc_client),
+        jito_client,
         args.priority_fee,
         Some(default_keypair),
     ));
@@ -180,11 +196,13 @@ async fn main() {
 impl Miner {
     pub fn new(
         rpc_client: Arc<RpcClient>,
+        jito_client: SearcherServiceClient<Channel>,
         priority_fee: u64,
         keypair_filepath: Option<String>,
     ) -> Self {
         Self {
             rpc_client,
+            jito_client,
             keypair_filepath,
             priority_fee,
         }
@@ -197,4 +215,20 @@ impl Miner {
             None => panic!("No keypair provided"),
         }
     }
+}
+
+async fn get_searcher_client_no_auth(
+    block_engine_url: &str,
+) -> BlockEngineConnectionResult<SearcherServiceClient<Channel>> {
+    let searcher_channel = create_grpc_channel(block_engine_url).await?;
+    let searcher_client = SearcherServiceClient::new(searcher_channel);
+    Ok(searcher_client)
+}
+
+async fn create_grpc_channel(url: &str) -> BlockEngineConnectionResult<Channel> {
+    let mut endpoint = Endpoint::from_shared(url.to_string()).expect("invalid url");
+    if url.starts_with("https") {
+        endpoint = endpoint.tls_config(tonic::transport::ClientTlsConfig::new())?;
+    }
+    Ok(endpoint.connect().await?)
 }
