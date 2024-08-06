@@ -1,11 +1,12 @@
 use std::str::FromStr;
-
+use std::sync::Arc;
 use colored::*;
 use ore_api::consts::MINT_ADDRESS;
 use solana_program::pubkey::Pubkey;
 use solana_sdk::signature::Signer;
 use spl_token::amount_to_ui_amount;
-
+use tokio::sync::RwLock;
+use tokio::time::sleep;
 use crate::{
     args::ClaimArgs,
     cu_limits::CU_LIMIT_CLAIM,
@@ -13,9 +14,14 @@ use crate::{
     utils::{amount_f64_to_u64, ask_confirm, get_proof_with_authority},
     Miner,
 };
+use crate::jito_send_and_confirm::{JitoTips, subscribe_jito_tips};
 
 impl Miner {
     pub async fn claim(&self, args: ClaimArgs) {
+
+        let tips = Arc::new(RwLock::new(JitoTips::default()));
+        subscribe_jito_tips(tips.clone()).await;
+
         let signer = self.signer();
         let pubkey = signer.pubkey();
         let proof = get_proof_with_authority(&self.rpc_client, pubkey).await;
@@ -70,9 +76,10 @@ impl Miner {
             return;
         }
 
+        sleep(std::time::Duration::from_secs(1)).await;
         // Send and confirm
         ixs.push(ore_api::instruction::claim(pubkey, beneficiary, amount));
-        self.send_and_confirm(&ixs, ComputeBudget::Fixed(CU_LIMIT_CLAIM), false)
+        self.jito_send_and_confirm(&ixs, ComputeBudget::Fixed(CU_LIMIT_CLAIM), false, tips)
             .await
             .ok();
     }
