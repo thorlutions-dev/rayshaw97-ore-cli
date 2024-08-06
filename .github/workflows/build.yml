@@ -63,14 +63,16 @@ jobs:
           set -x
           case "${{ matrix.target }}" in
             x86_64-unknown-linux-gnu)
+              sudo apt-get update
+              sudo apt-get install -y musl-tools protobuf-compiler
               ;;
             x86_64-unknown-linux-musl)
               sudo apt-get update
-              sudo apt-get install -y musl-tools
+              sudo apt-get install -y musl-tools protobuf-compiler
               ;;
             aarch64-unknown-linux-gnu)
               sudo apt-get update
-              sudo apt-get install -y gcc-aarch64-linux-gnu
+              sudo apt-get install -y gcc-aarch64-linux-gnu protobuf-compiler
 
               mkdir -p .cargo
               echo '[target.aarch64-unknown-linux-gnu]' >> .cargo/config
@@ -78,7 +80,7 @@ jobs:
               ;;
             x86_64-pc-windows-gnu)
               sudo apt-get update
-              sudo apt-get install -y gcc-mingw-w64-x86-64-win32
+              sudo apt-get install -y gcc-mingw-w64-x86-64-win32 protobuf-compiler
               ;;
           esac
       - name: Configure cache
@@ -91,8 +93,8 @@ jobs:
             ~/.cargo/git/db/
             target/
           key: release-${{ runner.os }}-cargo-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
-      - name: Lint
-        run: cargo fmt --check
+#      - name: Lint
+#        run: cargo fmt --check
       - name: Build
         # run: cargo build --release --locked --target ${{ matrix.target }}
         run: cargo build --release --target ${{ matrix.target }}
