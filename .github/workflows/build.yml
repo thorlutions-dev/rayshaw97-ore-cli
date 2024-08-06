@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: ["jito"]
+    branches: ["github-action"]
   workflow_dispatch:
 
 env:
@@ -22,7 +22,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
       - id: version
-        run: echo version="$(cargo metadata --no-deps --quiet --color never | jq -r '.packages[].version')-$(git describe --always --dirty=_modified)" >> "$GITHUB_OUTPUT"
+        run: echo version="$(cargo metadata --no-deps --quiet --color never | jq -r '.packages[1].version')-$(git describe --always --dirty=_modified)" >> "$GITHUB_OUTPUT"
   build:
     name: Build
     needs: version
