@@ -334,7 +334,8 @@ where
                     }
                     Some(Reason::SimulationFailure(SimulationFailure { tx_signature, msg })) => {
                         if let Some(message) = msg {
-                            if !message.starts_with("This transaction has already been proces") {
+                            if message != "This transaction has already been processed" {
+                                error!("{}" ,message);
                                 return Err(Box::new(BundleRejectionError::SimulationFailure(
                                     tx_signature,
                                     Some(message),
