@@ -178,7 +178,7 @@ impl Miner {
             let tips = *tips.read().await;
 
             if tips.p25() > 0 {
-                tip = self.max_adaptive_tip.min(tips.p25() + 1000);
+                tip = self.max_adaptive_tip.min(tips.p25() + self.priority_fee);
             }
         }
         final_ixs.push(build_bribe_ix(&signer.pubkey(), tip));

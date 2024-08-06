@@ -114,7 +114,7 @@ struct Args {
     #[arg(
         long,
         value_name = "MICROLAMPORTS",
-        help = "Number of microlamports to pay as priority fee per transaction",
+        help = "Number of microlamports to pay as priority fee per transaction, also work when using max_adaptive_tip",
         default_value = "0",
         global = true
     )]
