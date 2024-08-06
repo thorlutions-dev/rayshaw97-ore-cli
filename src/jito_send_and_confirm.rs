@@ -140,7 +140,7 @@ impl Miner {
         &self,
         ixs: &[Instruction],
         compute_budget: ComputeBudget,
-        skip_confirm: bool,
+        _skip_confirm: bool,
         tips: Arc<RwLock<JitoTips>>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let progress_bar = spinner::new_progress_bar();

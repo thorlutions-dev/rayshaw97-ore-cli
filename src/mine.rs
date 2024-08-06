@@ -57,7 +57,7 @@ impl Miner {
             .await;
 
             // Submit most difficult hash
-            let mut compute_budget = 500_000;
+            let compute_budget = 500_000;
             let mut ixs = vec![ore_api::instruction::auth(proof_pubkey(signer.pubkey()))];
             // if self.should_reset(config).await {
             //     compute_budget += 100_000;
