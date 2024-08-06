@@ -174,11 +174,11 @@ impl Miner {
         final_ixs.extend_from_slice(ixs);
 
         let mut tip = self.priority_fee.clone();
-        if 100 > 0 {
+        if self.max_adaptive_tip > 0 {
             let tips = *tips.read().await;
 
             if tips.p50() > 0 {
-                tip = 100.min(30000.max(tips.p50() + 1));
+                tip = self.max_adaptive_tip.min(30000.max(tips.p50() + 1));
             }
         }
         final_ixs.push(build_bribe_ix(&signer.pubkey(), tip));
@@ -333,10 +333,14 @@ where
                         )))
                     }
                     Some(Reason::SimulationFailure(SimulationFailure { tx_signature, msg })) => {
-                        return Err(Box::new(BundleRejectionError::SimulationFailure(
-                            tx_signature,
-                            msg,
-                        )))
+                        if let Some(message) = msg {
+                            if !message.starts_with("This transaction has already been proces") {
+                                return Err(Box::new(BundleRejectionError::SimulationFailure(
+                                    tx_signature,
+                                    Some(message),
+                                )));
+                            }
+                        }
                     }
                     Some(Reason::InternalError(InternalError { msg })) => {
                         return Err(Box::new(BundleRejectionError::InternalError(msg)))
