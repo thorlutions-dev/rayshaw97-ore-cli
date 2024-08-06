@@ -413,6 +413,7 @@ pub async fn subscribe_jito_tips(tips: Arc<RwLock<JitoTips>>) -> JoinHandle<()> 
         let tips = tips.clone();
         async move {
             let url = "ws://bundles-api-rest.jito.wtf/api/v1/bundles/tip_stream";
+            let mut error_cnt = 0;
 
             loop {
                 let stream = match tokio_tungstenite::connect_async(url).await {
@@ -430,7 +431,11 @@ pub async fn subscribe_jito_tips(tips: Arc<RwLock<JitoTips>>) -> JoinHandle<()> 
                     let data = match message {
                         Ok(data) => data.into_data(),
                         Err(err) => {
-                            tracing::error!("fail to read jito tips message: {err:#}");
+                            error_cnt += 1;
+                            if error_cnt >=8 {
+                                tracing::error!("fail to read jito tips message: {err:#}");
+                                error_cnt = 0;
+                            }
                             return;
                         }
                     };
