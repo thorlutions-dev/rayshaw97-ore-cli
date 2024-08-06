@@ -135,7 +135,9 @@ struct Args {
 
 #[tokio::main]
 async fn main() {
-    env_logger::init();
+    env_logger::Builder::new()
+        .filter_level(log::LevelFilter::Warn)
+        .init();
     let args = Args::parse();
 
     // Load the config file from custom path, the default path, or use default config values

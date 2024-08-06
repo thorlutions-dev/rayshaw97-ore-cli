@@ -2,18 +2,20 @@ use std::fmt::Formatter;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::vec;
-use log::{info, warn};
+use log::{error, info, warn};
 use colored::Colorize;
 use futures_util::StreamExt;
 use rand::Rng;
 use serde::{de, Deserialize};
 use serde_json::{json, Value};
+use solana_client::client_error::{ClientError, ClientErrorKind};
 use solana_program::{
     instruction::Instruction,
     native_token::{lamports_to_sol, sol_to_lamports},
 };
 use solana_program::pubkey::Pubkey;
 use solana_client::nonblocking::rpc_client::RpcClient;
+use solana_rpc_client::spinner;
 use solana_sdk::{compute_budget::ComputeBudgetInstruction, pubkey, signature::{Signature, Signer}, transaction::Transaction};
 use solana_sdk::commitment_config::CommitmentConfig;
 use solana_sdk::transaction::VersionedTransaction;
@@ -141,6 +143,7 @@ impl Miner {
         skip_confirm: bool,
         tips: Arc<RwLock<JitoTips>>,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        let progress_bar = spinner::new_progress_bar();
         let signer = self.signer();
         let client = self.rpc_client.clone();
         let mut jito_client = self.jito_client.clone();
@@ -194,7 +197,7 @@ impl Miner {
         while !is_leader_slot {
             let next_leader = jito_client
                 .get_next_scheduled_leader(NextScheduledLeaderRequest {
-                    regions: vec![],
+                    regions: "tokyo,amsterdam,frankfurt,ny,slc".split(",").map(|s| s.to_string()).collect(),
                 })
                 .await
                 .expect("gets next scheduled leader")
@@ -220,14 +223,66 @@ impl Miner {
         let txs: Vec<_> = vec![VersionedTransaction::from(tx)];
 
 
-        Ok(send_bundle_with_confirmation(
-            &txs,
-            &client,
-            &mut jito_client,
-            &mut bundle_results_subscription,
-        )
-            .await
-            .expect("Sending bundle failed"))
+        let mut attempts = 1;
+        loop {
+            progress_bar.set_message(format!("Submitting transaction... (attempt {})", attempts));
+            match send_bundle_with_confirmation(
+                &txs,
+                &client,
+                &mut jito_client,
+                &mut bundle_results_subscription,
+            )
+                .await {
+                Ok(()) => {
+                    return Ok(());
+                }
+
+                Err(e) => {
+                    if let Some(bundle_error) = e.downcast_ref::<BundleRejectionError>() {
+                        match bundle_error {
+                            BundleRejectionError::StateAuctionBidRejected(auction_id, tip) => {
+                                warn!(
+                                    "bundle auction rejected, auction: {}, tip {} lamports",
+                                    auction_id, tip
+                                );
+                            }
+
+                            BundleRejectionError::InternalError(msg) => {
+                                warn!(
+                                    "{}",
+                                    msg
+                                );
+                            }
+
+                            BundleRejectionError::SimulationFailure(tx_signature, msg) => {
+                                warn!(
+                                    "bundle simulation failure on tx {}, message: {:?}",
+                                    tx_signature, msg
+                                );
+                            }
+
+                            _ => {
+                                panic!("Sending bundle failed: {e:?}");
+                            }
+                        }
+                    } else {
+                        panic!("Sending bundle failed: {e:?}");
+                    }
+                }
+            }
+
+            // Retry
+            sleep(Duration::from_millis(400*attempts)).await;
+
+            attempts += 1;
+            if attempts > 3 {
+                progress_bar.finish_with_message(format!("{}: Max retries", "ERROR".bold().red()));
+                return Err(Box::new(ClientError {
+                    request: None,
+                    kind: ClientErrorKind::Custom("Max retries".to_string()),
+                }));
+            }
+        }
 
 
     }
@@ -439,7 +494,7 @@ pub async fn subscribe_jito_tips(tips: Arc<RwLock<JitoTips>>) -> JoinHandle<()> 
                     let data = match serde_json::from_slice::<Vec<JitoTips>>(&data) {
                         Ok(t) => t,
                         Err(err) => {
-                            tracing::error!("fail to parse jito tips: {err:#}");
+                            tracing::info!("fail to parse jito tips: {err:#}");
                             return;
                         }
                     };
